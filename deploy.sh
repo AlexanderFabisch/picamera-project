@@ -1,0 +1,1 @@
+sshpass -p 'raspberry' scp raspberry_pi/* pi@RaspberryPi:/home/pi
