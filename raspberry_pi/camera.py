@@ -3,7 +3,8 @@ from time import sleep
 import datetime
 
 
-CAPTURE_TABLE = "8:00,9:00,10:00,11:00,12:00,13:00,14:00,15:00,16:00,17:00,18:00,19:00"
+CAPTURE_TABLE = ",".join(map(lambda t: "%d:%d" % t, itertools.product(range(9, 19), range(0, 60, 15))))
+#"9:00,10:00,11:00,12:00,13:00,14:00,15:00,16:00,17:00,18:00,19:00"
 
 
 def set_defaults(camera):
@@ -47,9 +48,11 @@ def sleep_until(hour, minute, verbose=0):
 
 if __name__ == "__main__":
     camera = picamera.PiCamera()
-
     set_defaults(camera)
+
     capture_loop(camera)
+
+    #camera.capture("image.jpg")
 
     #camera.start_recording("video.h264")
     #sleep(5)
