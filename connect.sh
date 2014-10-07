@@ -1,0 +1,1 @@
+sshpass -p 'raspberry' ssh pi@RaspberryPi
