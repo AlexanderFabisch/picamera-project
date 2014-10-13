@@ -1,10 +1,10 @@
 import picamera
 from time import sleep
 import datetime
+import itertools
 
 
-CAPTURE_TABLE = ",".join(map(lambda t: "%d:%d" % t, itertools.product(range(9, 19), range(0, 60, 15))))
-#"9:00,10:00,11:00,12:00,13:00,14:00,15:00,16:00,17:00,18:00,19:00"
+CAPTURE_TABLE = ",".join(map(lambda t: "%d:%d" % t, itertools.product(range(8, 19), range(0, 60, 1))))
 
 
 def set_defaults(camera):
@@ -23,18 +23,20 @@ def set_defaults(camera):
     camera.color_effects = None
     camera.rotation = 0
     camera.hflip = False
-    camera.vflip = False
+    camera.vflip = True
     camera.crop = (0.0, 0.0, 1.0, 1.0)
 
 
 def capture_loop(camera):
+    i = 0
     while True:
         for t in CAPTURE_TABLE.split(","):
             hour, minute = map(int, t.split(":"))
             sleep_until(hour, minute, 1)
             now = datetime.datetime.now()
-            filename = "image_%d_%d_%d_%d_%d.jpg" % (now.year, now.month, now.day, hour, minute)
+            filename = "image_%03d.jpg" % i
             camera.capture(filename)
+            i += 1
 
 
 def sleep_until(hour, minute, verbose=0):
@@ -42,6 +44,7 @@ def sleep_until(hour, minute, verbose=0):
     future = datetime.datetime(now.day, now.month, now.day, hour, minute)
     delta = (future - now).seconds
     if verbose:
+        print(future)
         print("Sleeping for %d seconds" % delta)
     sleep(delta)
 
