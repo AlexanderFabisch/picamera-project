@@ -9,3 +9,4 @@ PC
 Raspberry Pi
 
 * python-picamera
+* python-daemon

@@ -1,7 +1,9 @@
+#!/usr/bin/python
 import picamera
 from time import sleep
 import datetime
 import itertools
+from daemon import runner
 
 
 CAPTURE_TABLE = ",".join(map(lambda t: "%d:%d" % t, itertools.product(range(8, 19), range(0, 60, 1))))
@@ -49,14 +51,25 @@ def sleep_until(hour, minute, verbose=0):
     sleep(delta)
 
 
-if __name__ == "__main__":
-    camera = picamera.PiCamera()
-    set_defaults(camera)
+class App():
+    def __init__(self):
+        self.stdin_path = '/dev/null'
+        self.stdout_path = '/dev/tty'
+        self.stderr_path = '/dev/tty'
+        self.pidfile_path =  '/tmp/cam.pid'
+        self.pidfile_timeout = 5
 
-    capture_loop(camera)
+    def run(self):
+        camera = picamera.PiCamera()
+        set_defaults(camera)
+        capture_loop(camera)
 
-    #camera.capture("image.jpg")
+        #camera.capture("image.jpg")
+        #camera.start_recording("video.h264")
+        #sleep(5)
+        #camera.stop_recording()
 
-    #camera.start_recording("video.h264")
-    #sleep(5)
-    #camera.stop_recording()
+
+app = App()
+daemon_runner = runner.DaemonRunner(app)
+daemon_runner.do_action()
