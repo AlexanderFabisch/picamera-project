@@ -1,2 +1,2 @@
-sshpass -p 'raspberry' scp pi@RaspberryPi:/home/pi/*.jpg .
-sshpass -p 'raspberry' scp pi@RaspberryPi:/home/pi/*.h264 .
+sshpass -p 'raspberry' scp pi@RaspberryPi:/home/pi/*.jpg images
+sshpass -p 'raspberry' scp pi@RaspberryPi:/home/pi/*.h264 images
