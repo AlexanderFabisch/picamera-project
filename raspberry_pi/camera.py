@@ -36,7 +36,7 @@ def capture_loop(camera):
             hour, minute = map(int, t.split(":"))
             sleep_until(hour, minute, 1)
             now = datetime.datetime.now()
-            filename = "image_%03d.jpg" % i
+            filename = "/home/pi/image_%03d.jpg" % i
             camera.capture(filename)
             i += 1
 
@@ -54,8 +54,8 @@ def sleep_until(hour, minute, verbose=0):
 class App():
     def __init__(self):
         self.stdin_path = '/dev/null'
-        self.stdout_path = '/dev/tty'
-        self.stderr_path = '/dev/tty'
+        self.stdout_path = '/home/pi/cam.stdout.log'
+        self.stderr_path = '/home/pi/cam.stderr.log'
         self.pidfile_path =  '/tmp/cam.pid'
         self.pidfile_timeout = 5
 
