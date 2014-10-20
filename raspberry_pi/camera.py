@@ -1,16 +1,18 @@
 #!/usr/bin/python
-import picamera
-from time import sleep
+import io
 import datetime
 import itertools
+import picamera
+import zmq
+import numpy as np
+from time import sleep
 from daemon import runner
-
-
-CAPTURE_TABLE = ",".join(map(lambda t: "%d:%d" % t, itertools.product(range(8, 19), range(0, 60, 1))))
+from PIL import Image
+from network import send_array
 
 
 def set_defaults(camera):
-    camera.resolution = (2560, 1536)
+    camera.resolution = (1920, 1080)
     camera.sharpness = 0
     camera.contrast = 0
     camera.brightness = 50
@@ -24,21 +26,28 @@ def set_defaults(camera):
     camera.image_effect = "none"
     camera.color_effects = None
     camera.rotation = 0
-    camera.hflip = False
+    camera.hflip = True
     camera.vflip = True
     camera.crop = (0.0, 0.0, 1.0, 1.0)
 
 
+def capture_as_ndarray(camera):
+    stream = io.BytesIO()
+    camera.capture(stream, format="jpeg")
+    stream.seek(0)
+    image = Image.open(stream)
+    return np.asarray(image)
+
+
 def capture_loop(camera):
-    i = 0
+    context = zmq.Context()
+    sock = context.socket(zmq.REP)
+    sock.bind("tcp://192.168.178.27:5678")
     while True:
-        for t in CAPTURE_TABLE.split(","):
-            hour, minute = map(int, t.split(":"))
-            sleep_until(hour, minute, 1)
-            now = datetime.datetime.now()
-            filename = "/home/pi/image_%03d.jpg" % i
-            camera.capture(filename)
-            i += 1
+        message = sock.recv()
+        image = capture_as_ndarray(camera)
+        send_array(sock, image)
+        sleep(1)
 
 
 def sleep_until(hour, minute, verbose=0):
@@ -46,16 +55,21 @@ def sleep_until(hour, minute, verbose=0):
     future = datetime.datetime(now.day, now.month, now.day, hour, minute)
     delta = (future - now).seconds
     if verbose:
-        print(future)
         print("Sleeping for %d seconds" % delta)
     sleep(delta)
 
 
 class App():
-    def __init__(self):
+    def __init__(self, training=True, logging=False):
+        self.training = training
+
         self.stdin_path = '/dev/null'
-        self.stdout_path = '/home/pi/cam.stdout.log'
-        self.stderr_path = '/home/pi/cam.stderr.log'
+        if logging:
+            self.stdout_path = '/home/pi/cam.stdout.log'
+            self.stderr_path = '/home/pi/cam.stderr.log'
+        else:
+            self.stdout_path = '/dev/tty'
+            self.stderr_path = '/dev/tty'
         self.pidfile_path =  '/tmp/cam.pid'
         self.pidfile_timeout = 5
 
@@ -63,11 +77,6 @@ class App():
         camera = picamera.PiCamera()
         set_defaults(camera)
         capture_loop(camera)
-
-        #camera.capture("image.jpg")
-        #camera.start_recording("video.h264")
-        #sleep(5)
-        #camera.stop_recording()
 
 
 app = App()
