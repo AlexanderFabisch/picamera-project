@@ -6,6 +6,9 @@ PC
 * sshpass
 * python-numpy
 * python-zmq
+* python-matplotlib
+* qt4
+* python-qt4
 
 Raspberry Pi
 
