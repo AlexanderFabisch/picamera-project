@@ -1,5 +1,6 @@
 import sys
 import os
+import time
 import datetime
 import logging
 from PyQt4.QtCore import *
@@ -10,7 +11,7 @@ from matplotlib.backends.backend_qt4agg import NavigationToolbar2QTAgg as Naviga
 from matplotlib.figure import Figure
 import numpy as np
 import zmq
-from skimage import filter, color
+from skimage import color
 from network import recv_array
 reload(sys)
 sys.setdefaultencoding("utf-8")
@@ -43,11 +44,13 @@ class AppForm(QMainWindow):
     def create_main_frame(self):
         self.main_frame = QWidget()
 
-        self.fig = Figure((8.0, 4.0), dpi=400)
+        self.fig = Figure((8.0, 4.0), dpi=100)
         self.canvas = FigureCanvas(self.fig)
         self.canvas.setParent(self.main_frame)
 
         self.axis = self.fig.add_subplot(111)
+        self.axis.set_xticks(())
+        self.axis.set_yticks(())
         self.mpl_toolbar = NavigationToolbar(self.canvas, self.main_frame)
 
         self.download_button = QPushButton("Download")
@@ -114,11 +117,12 @@ class AppForm(QMainWindow):
 
     def on_download(self):
         self.axis.clear()
+        self.axis.set_xticks(())
+        self.axis.set_yticks(())
         self.sock.send("")
-        image = recv_array(self.sock)
-        gray = color.rgb2gray(image)
-        edges = filter.sobel(gray)
-        self.axis.imshow(edges)
+        self.image = recv_array(self.sock)
+        #gray = color.rgb2gray(self.image)
+        self.axis.imshow(self.image)
         self.canvas.draw()
 
     def on_label_1(self):
@@ -129,6 +133,10 @@ class AppForm(QMainWindow):
 
     def on_label(self, label):
         print("Label %d" % label)
+        timestamp = "%d" % time.time()
+        np.save("data/%s.npy" % timestamp, self.image)
+        f = open("data/labels.txt", "a")
+        f.write(timestamp + " " + str(label) + "\n")
 
 
 def main():
