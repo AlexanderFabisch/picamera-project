@@ -35,6 +35,9 @@ class AppForm(QMainWindow):
         self.sock = self.context.socket(zmq.REQ)
         self.sock.connect("tcp://192.168.178.27:5678")
 
+        self.axes = []
+        self.images = []
+
         self.create_menu()
         self.create_main_frame()
         self.create_status_bar()
@@ -48,10 +51,10 @@ class AppForm(QMainWindow):
         self.canvas = FigureCanvas(self.fig)
         self.canvas.setParent(self.main_frame)
 
-        self.axis = self.fig.add_subplot(111)
-        self.axis.set_xticks(())
-        self.axis.set_yticks(())
         self.mpl_toolbar = NavigationToolbar(self.canvas, self.main_frame)
+
+        self.number = QLineEdit()
+        self.number.setMaximumWidth(50)
 
         self.download_button = QPushButton("Download")
         self.connect(self.download_button, SIGNAL('clicked()'), self.on_download)
@@ -64,7 +67,8 @@ class AppForm(QMainWindow):
 
         hbox = QHBoxLayout()
 
-        for w in [self.download_button, self.label_button_1, self.label_button_2]:
+        for w in [self.number, self.download_button, self.label_button_1,
+                  self.label_button_2]:
             hbox.addWidget(w)
             hbox.setAlignment(w, Qt.AlignVCenter)
 
@@ -116,13 +120,27 @@ class AppForm(QMainWindow):
         return action
 
     def on_download(self):
-        self.axis.clear()
-        self.axis.set_xticks(())
-        self.axis.set_yticks(())
-        self.sock.send("")
-        self.image = recv_array(self.sock)
-        #gray = color.rgb2gray(self.image)
-        self.axis.imshow(self.image)
+        number = int(self.number.text())
+        rows = int(np.sqrt(number))
+        cols = number // rows
+        if number % cols > 0:
+            cols += 1
+        self.logger.debug("Receiving %d images" % number)
+        for ax in self.axes:
+            self.fig.delaxes(ax)
+        self.axes = []
+        self.images = []
+        for n in range(number):
+            ax = self.fig.add_subplot(cols, rows, n + 1)
+            ax.set_xticks(())
+            ax.set_yticks(())
+            self.logger.debug("Receiving %d images" % (n + 1))
+            self.sock.send("")
+            image = recv_array(self.sock)
+            #gray = color.rgb2gray(self.image)
+            ax.imshow(image)
+            self.axes.append(ax)
+            self.images.append(image)
         self.canvas.draw()
 
     def on_label_1(self):
@@ -132,9 +150,9 @@ class AppForm(QMainWindow):
         self.on_label(1)
 
     def on_label(self, label):
-        print("Label %d" % label)
+        self.logger.debug("Label %d" % label)
         timestamp = "%d" % time.time()
-        np.save("data/%s.npy" % timestamp, self.image)
+        np.save("data/%s.npy" % timestamp, self.images[0])
         f = open("data/labels.txt", "a")
         f.write(timestamp + " " + str(label) + "\n")
 

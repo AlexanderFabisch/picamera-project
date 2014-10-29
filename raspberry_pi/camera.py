@@ -12,7 +12,7 @@ from network import send_array
 
 
 def set_defaults(camera):
-    camera.resolution = (1920, 1080)
+    camera.resolution = (640, 480)
     camera.sharpness = 0
     camera.contrast = 0
     camera.brightness = 50
