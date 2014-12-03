@@ -17,3 +17,4 @@ Raspberry Pi
 * python-imaging
 * python-numpy
 * python-zmq
+* python-opencv
