@@ -15,14 +15,10 @@ from skimage.transform import hough_line, hough_line_peaks
 from scipy.spatial.distance import cdist
 
 
-# Camera pose in world frame
-e_xyz = np.array([0.12, 1.0, 0.0]) * np.pi
-p = np.array([-0.83, -1.1, 2.1])
-cam2world = transform_from(matrix_from_euler_xyz(e_xyz), p)
 # Source: http://elinux.org/Rpi_Camera_Module#Technical_Parameters
-focal_length = 0.0036
-sensor_size = (0.00367, 0.00274)
-image_size = (640, 480)
+camera_params = {"focal_length": 0.0036,
+                 "sensor_size": (0.00367, 0.00274),
+                 "image_size": (640, 480)}
 
 
 def draw_to_image(image, points, color=[0, 255, 0], thick=False):
@@ -38,20 +34,15 @@ def draw_to_image(image, points, color=[0, 255, 0], thick=False):
                         image[p[1] + i, p[0] + j] = color
 
 
-def line(start, end, n_points=100):
-    l = np.empty((n_points, 4))
-    for d in range(4):
-        l[:, d] = np.linspace(start[d], end[d], n_points)
-    return l
-
-
-def quadrangle(p1, p2, p3, p4, n_points_per_edge=100):
-    return np.vstack((line(p1, p2), line(p2, p3), line(p3, p4), line(p4, p1)))
-
-
 def optimize_transform(projection_args):
     if os.path.exists("transform.npy"):
         return np.loadtxt("transform.npy")
+
+    # Camera pose in world frame
+    e_xyz = np.array([0.0, 1.0, 0.0]) * np.pi
+    p = np.array([-0.83, -1.1, 2.1])
+    kappa = 0.0
+    initial_params = np.hstack((e_xyz, p, [kappa]))
 
     def objective(params):
         e_xyz = params[:3]
@@ -71,7 +62,7 @@ def optimize_transform(projection_args):
                        [2.08, 2.12],
                        [0, 0.05]])
     covariance = np.array([np.pi / 2, np.pi / 2, np.pi / 2, 0.1, 0.1, 0.1, 0.01])
-    r = fmin(objective, "ipop", x0=np.hstack((e_xyz, p, [0])), maxfun=2000,
+    r = fmin(objective, "ipop", x0=initial_params, maxfun=2000,
              log_to_stdout=True, covariance=covariance, bounds=bounds,
              random_state=0)
     params = r[0]
@@ -85,14 +76,12 @@ def line_y(x, a, d):
 
 
 if __name__ == "__main__":
-    filename = "data/1418332576.jpg"
-    if len(sys.argv) > 1:
-        filename = sys.argv[-1]
+    if len(sys.argv) <= 1:
+        raise Exception("No image specified")
+
+    filename = sys.argv[1]
     im = np.array(Image.open(filename))
     rows, cols = im.shape[:2]
-
-    projection_args = {"sensor_size": sensor_size, "image_size": image_size,
-                       "focal_length": focal_length}
 
     P_corners = np.array([[ 0.000, 0.0, 0, 1],
                           [-0.100, 0.6, 0, 1],
@@ -106,14 +95,14 @@ if __name__ == "__main__":
                                 [194, 114],
                                 [81, 115]])
 
-    params = optimize_transform(projection_args)
+    params = optimize_transform(camera_params)
     print("Parameters: %s" % np.round(params, 3))
     cam2world = transform_from(matrix_from_euler_xyz(params[:3]), params[3:6])
     image_corners = world2image(P_corners, cam2world, kappa=params[-1],
-                                **projection_args)
+                                **camera_params)
 
     image_grid = world2image(P_world_grid, cam2world, kappa=params[-1],
-                             **projection_args)
+                             **camera_params)
 
     plt.figure(figsize=(20, 10))
 
@@ -173,9 +162,9 @@ if __name__ == "__main__":
     draw_to_image(im_frames, image_grid, color=[255, 255, 0])
     draw_to_image(im_frames, image_corners, thick=True)
     P_door_from_world_lo = world2image(
-        P_world_door_low, cam2world, kappa=params[-1], **projection_args)
+        P_world_door_low, cam2world, kappa=params[-1], **camera_params)
     P_door_from_world_hi = world2image(
-        P_world_door_hi, cam2world, kappa=params[-1], **projection_args)
+        P_world_door_hi, cam2world, kappa=params[-1], **camera_params)
     draw_to_image(im_frames, P_door_from_world_lo, thick=True)
     draw_to_image(im_frames, P_door_from_world_hi, thick=True)
 
