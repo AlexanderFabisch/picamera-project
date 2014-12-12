@@ -12,6 +12,7 @@ from skimage.io import imshow
 from skimage.color import rgb2gray
 from skimage.filter import sobel, threshold_otsu
 from skimage.transform import hough_line, hough_line_peaks
+from scipy.spatial.distance import cdist
 
 
 # Camera pose in world frame
@@ -97,6 +98,9 @@ if __name__ == "__main__":
                           [-0.100, 0.6, 0, 1],
                           [-0.880, 0.6, 0, 1],
                           [-1.315, 0.6, 0, 1],])
+    P_world_door_low = make_world_line([0, 0, 0, 1], [0, -0.85, 0, 1], 51)
+    P_world_door_hi = make_world_line([0, 0, 0, 1], [0, 0, 1, 1], 51)
+    P_world_grid = make_world_grid(n_points_per_line=101)
     P_image_corners = np.array([[420, 240],
                                 [374, 120],
                                 [194, 114],
@@ -108,13 +112,12 @@ if __name__ == "__main__":
     image_corners = world2image(P_corners, cam2world, kappa=params[-1],
                                 **projection_args)
 
-    world_grid = make_world_grid(n_points_per_line=101)
-    image_grid = world2image(world_grid, cam2world, kappa=params[-1],
+    image_grid = world2image(P_world_grid, cam2world, kappa=params[-1],
                              **projection_args)
 
     plt.figure(figsize=(20, 10))
 
-    plt.subplots_adjust(left=0.0, bottom=0.0, right=1.0, top=1.0, wspace=0.0, hspace=0.0)
+    plt.subplots_adjust(left=0, bottom=0, right=1, top=1, wspace=0, hspace=0)
     ax = plt.subplot(231)
     plt.setp(ax, xticks=(), yticks=())
     ax.imshow(im)
@@ -125,6 +128,10 @@ if __name__ == "__main__":
     im_tresh = sobel_image > thresh
 
     ax = plt.subplot(232)
+    plt.setp(ax, xticks=(), yticks=())
+    ax.imshow(sobel_image, cmap=plt.cm.gray)
+
+    ax = plt.subplot(233)
     plt.setp(ax, xticks=(), yticks=())
     ax.imshow(im_tresh, cmap=plt.cm.gray)
 
@@ -142,6 +149,7 @@ if __name__ == "__main__":
 
     im_edges = np.copy(im)
     # raw pixels in vicinity of lines)
+    P_line_points = []
     thresh_px = np.nonzero(im_tresh)
     for i in range(len(hspace)):
         for px in zip(thresh_px[1], thresh_px[0]):
@@ -153,32 +161,64 @@ if __name__ == "__main__":
                 px3 = px1
                 px1 = tmp
             if px1[1] - 10 <= px[1] <= px3[1] + 10:
-                draw_to_image(im_edges, np.atleast_2d(px), [255, 255, 0])
+                P_line_points.append(px)
+    P_line_points  = np.array(P_line_points)
+    draw_to_image(im_edges, P_line_points, [255, 255, 0])
 
-    ax = plt.subplot(233)
+    ax = plt.subplot(234)
     ax.imshow(im_edges)
 
     im_frames = np.copy(im)
     draw_to_image(im_frames, P_image_corners, color=[0, 0, 255], thick=True)
-    draw_to_image(im_frames, image_grid)
+    draw_to_image(im_frames, image_grid, color=[255, 255, 0])
     draw_to_image(im_frames, image_corners, thick=True)
+    P_door_from_world_lo = world2image(
+        P_world_door_low, cam2world, kappa=params[-1], **projection_args)
+    P_door_from_world_hi = world2image(
+        P_world_door_hi, cam2world, kappa=params[-1], **projection_args)
+    draw_to_image(im_frames, P_door_from_world_lo, thick=True)
+    draw_to_image(im_frames, P_door_from_world_hi, thick=True)
 
-    ax = plt.subplot(234)
+    if len(P_line_points) > 0:
+        dists = cdist(P_door_from_world_lo, P_line_points)
+        dists.sort(axis=1)
+        min_dists = dists.min(axis=1)
+        edge_pixels_percentage = float(np.count_nonzero(min_dists < 5)) / len(min_dists)
+        print edge_pixels_percentage
+        detected_lo = 0.7 < edge_pixels_percentage
+
+        dists = cdist(P_door_from_world_hi, P_line_points)
+        dists.sort(axis=1)
+        min_dists = dists.min(axis=1)
+        edge_pixels_percentage = float(np.count_nonzero(min_dists < 5)) / len(min_dists)
+        print edge_pixels_percentage
+        detected_hi = 0.7 < edge_pixels_percentage
+
+        door_closed = detected_lo or detected_hi
+    else:
+        door_closed = True
+
+    if door_closed:
+        print("The door is closed")
+    else:
+        print("The door is open")
+
+    ax = plt.subplot(235)
     plt.setp(ax, xticks=(), yticks=())
     ax.imshow(im_frames)
 
-    ax = plt.subplot(235, projection="3d")
+    ax = plt.subplot(236, projection="3d")
     plot_transform(ax)
     plot_transform(ax, A2B=cam2world)
-    ax.scatter(world_grid[:, 0], world_grid[:, 1], world_grid[:, 2], s=1, c="g")
+    ax.scatter(P_world_grid[:, 0], P_world_grid[:, 1], P_world_grid[:, 2], s=1, c="g")
     ax.scatter(P_corners[:, 0], P_corners[:, 1], P_corners[:, 2], c="g")
+    ax.scatter(P_world_door_low[:, 0], P_world_door_low[:, 1], P_world_door_low[:, 2], c="g")
+    ax.scatter(P_world_door_hi[:, 0], P_world_door_hi[:, 1], P_world_door_hi[:, 2], c="g")
     ax.set_xlim((-2, 2))
     ax.set_ylim((-2.5, 1.5))
     ax.set_zlim((-0.2, 2.8))
     ax.set_xlabel("X")
     ax.set_ylabel("Y")
     ax.set_zlabel("Z")
-
-    # TODO project edges from world to image and compare to lines
 
     plt.show()
