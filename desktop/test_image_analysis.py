@@ -35,6 +35,7 @@ def draw_to_image(image, points, color=[0, 255, 0], thick=False):
 
 
 def optimize_transform(projection_args):
+    """Optimize camera transformation."""
     if os.path.exists("transform.npy"):
         return np.loadtxt("transform.npy")
 
@@ -71,8 +72,41 @@ def optimize_transform(projection_args):
     return params
 
 
-def line_y(x, a, d):
+def line_point(x, a, d):
+    """Compute coordinates of a point on the line defined by angle and dist."""
     return np.array([x, (d - x * np.cos(a)) / np.sin(a)]).astype(int)
+
+
+def check_edge_is_on_line(image_edges, angles, dists):
+    """Return edge pixels that are in the vicinity of a line."""
+    Pi_line_points = []
+    thresh_px = np.nonzero(image_edges)
+    for i in range(len(hspace)):
+        for px in zip(thresh_px[1], thresh_px[0]):
+            px1 = line_point(px[0] - 1, angles[i], dists[i])
+            px2 = line_point(px[0], angles[i], dists[i])
+            px3 = line_point(px[0] + 1, angles[i], dists[i])
+            if px1[0] > px3[0]:
+                tmp = px3
+                px3 = px1
+                px1 = tmp
+            if px1[1] - 10 <= px[1] <= px3[1] + 10:
+                Pi_line_points.append(px)
+    return np.array(Pi_line_points)
+
+
+def check_line_is_edge(Pw_line, Pi_edge, cam2world, kappa, camera_params,
+                       max_pixel_dist=5):
+    """Check if a line defined in world frame corresponds to edge pixels."""
+    Pi_line = world2image(Pw_line, cam2world, kappa=kappa, **camera_params)
+
+    if len(Pi_line) == 0:
+        return Pi_line, 0.0
+    else:
+        dists = cdist(Pi_line, Pi_edge)
+        min_dists = dists.min(axis=1)
+        n_matching = np.count_nonzero(min_dists < max_pixel_dist)
+        return Pi_line, float(n_matching) / len(min_dists)
 
 
 if __name__ == "__main__":
@@ -80,129 +114,115 @@ if __name__ == "__main__":
         raise Exception("No image specified")
 
     filename = sys.argv[1]
-    im = np.array(Image.open(filename))
-    rows, cols = im.shape[:2]
+    image = np.array(Image.open(filename))
+    rows, cols = image.shape[:2]
 
-    P_corners = np.array([[ 0.000, 0.0, 0, 1],
-                          [-0.100, 0.6, 0, 1],
-                          [-0.880, 0.6, 0, 1],
-                          [-1.315, 0.6, 0, 1],])
-    P_world_door_low = make_world_line([0, 0, 0, 1], [0, -0.85, 0, 1], 51)
-    P_world_door_hi = make_world_line([0, 0, 0, 1], [0, 0, 1, 1], 51)
-    P_world_grid = make_world_grid(n_points_per_line=101)
-    P_image_corners = np.array([[420, 240],
-                                [374, 120],
-                                [194, 114],
-                                [81, 115]])
+    required_matching_ratios = (0.7, 0.7)
 
+    # Calibration points for camera parameters
+    Pw_corners = np.array([[ 0.000, 0.0, 0, 1],
+                           [-0.100, 0.6, 0, 1],
+                           [-0.880, 0.6, 0, 1],
+                           [-1.315, 0.6, 0, 1],])
+    Pi_corners = np.array([[420, 240],
+                           [374, 120],
+                           [194, 114],
+                           [81, 115]])
+    # Position of visible edges from the closed door
+    Pw_door_lo = make_world_line([0, 0, 0, 1], [0, -0.85, 0, 1], 51)
+    Pw_door_hi = make_world_line([0, 0, 0, 1], [0, 0, 1, 1], 51)
+    # Grid that we display for debugging purposes
+    Pw_grid = make_world_grid(n_points_per_line=101)
+
+    # Estimate camera transformation by minimizing the distance between
+    # calibration points
     params = optimize_transform(camera_params)
     print("Parameters: %s" % np.round(params, 3))
     cam2world = transform_from(matrix_from_euler_xyz(params[:3]), params[3:6])
-    image_corners = world2image(P_corners, cam2world, kappa=params[-1],
-                                **camera_params)
+    kappa = params[-1]
 
-    image_grid = world2image(P_world_grid, cam2world, kappa=params[-1],
-                             **camera_params)
+    # Transform points to image coordinates
+    Pi_corners_proj = world2image(Pw_corners, cam2world, kappa=kappa,
+                                  **camera_params)
+    Pi_grid = world2image(Pw_grid, cam2world, kappa=kappa,
+                          **camera_params)
+
+    # Edge detection:
+    # 1. convert to grayscale image
+    image_gray = rgb2gray(image)
+    # 2. convolve with Sobel filter
+    image_sobel = sobel(image_gray)
+    # 3. compute binary edge image with threshold from Otsu's method
+    image_edges = image_sobel > threshold_otsu(image_sobel)
+
+    # Detect lines with Hough transform
+    hough_accumulator, angles, dists = hough_line(image_edges)
+    hspace, angles, dists = hough_line_peaks(
+        hough_accumulator, angles, dists, threshold=150.0)
+
+    # Get edge pixels in vicinity of lines
+    Pi_line_points = check_edge_is_on_line(image_edges, angles, dists)
+
+    # Check how good the edges of the door projected to the image match
+    # detected edge pixels that correspond to lines
+    P_door_from_world_lo, matching_ratio_lo = check_line_is_edge(
+        Pw_door_lo, Pi_line_points, cam2world, kappa, camera_params)
+    P_door_from_world_hi, matching_ratio_hi = check_line_is_edge(
+        Pw_door_hi, Pi_line_points, cam2world, kappa, camera_params)
+
+    print("Matching ratios: %.1f%%, %.1f%%"
+          % (100 * matching_ratio_lo, 100 * matching_ratio_hi))
+
+    if (matching_ratio_lo > required_matching_ratios[0] or
+            matching_ratio_hi > required_matching_ratios[1]):
+        print("The door is closed")
+    else:
+        print("The door is open")
 
     plt.figure(figsize=(20, 10))
 
     plt.subplots_adjust(left=0, bottom=0, right=1, top=1, wspace=0, hspace=0)
     ax = plt.subplot(231)
     plt.setp(ax, xticks=(), yticks=())
-    ax.imshow(im)
-
-    img = rgb2gray(im)
-    sobel_image = sobel(img)
-    thresh = threshold_otsu(sobel_image)
-    im_tresh = sobel_image > thresh
+    ax.imshow(image)
 
     ax = plt.subplot(232)
     plt.setp(ax, xticks=(), yticks=())
-    ax.imshow(sobel_image, cmap=plt.cm.gray)
+    ax.imshow(image_sobel, cmap=plt.cm.gray)
 
     ax = plt.subplot(233)
     plt.setp(ax, xticks=(), yticks=())
-    ax.imshow(im_tresh, cmap=plt.cm.gray)
-
-    hough_accumulator, angles, dists = hough_line(im_tresh)
-    hspace, angles, dists = hough_line_peaks(
-        hough_accumulator, angles, dists, threshold=150.0)
-    Y = np.empty((len(hspace), 2))
-    for i, angle, dist in zip(range(len(hspace)), angles, dists):
-        Y[i, 0] = line_y(0, angle, dist)[1]
-        Y[i, 1] = line_y(cols, angle, dist)[1]
-    for y in Y:
-        ax.plot((0, cols), y, "r")
+    ax.imshow(image_edges, cmap=plt.cm.gray)
+    lines = np.array(
+        [[line_point(0, angle, dist), line_point(cols, angle, dist)]
+         for i, angle, dist in zip(range(len(hspace)), angles, dists)])
+    for l in lines:
+        ax.plot((l[0, 0], l[1, 0]), (l[0, 1], l[1, 1]), "r")
     ax.axis((0, cols, rows, 0))
     plt.setp(ax, xticks=(), yticks=())
 
-    im_edges = np.copy(im)
-    # raw pixels in vicinity of lines)
-    P_line_points = []
-    thresh_px = np.nonzero(im_tresh)
-    for i in range(len(hspace)):
-        for px in zip(thresh_px[1], thresh_px[0]):
-            px1 = line_y(px[0] - 1, angles[i], dists[i])
-            px2 = line_y(px[0], angles[i], dists[i])
-            px3 = line_y(px[0] + 1, angles[i], dists[i])
-            if px1[0] > px3[0]:
-                tmp = px3
-                px3 = px1
-                px1 = tmp
-            if px1[1] - 10 <= px[1] <= px3[1] + 10:
-                P_line_points.append(px)
-    P_line_points  = np.array(P_line_points)
-    draw_to_image(im_edges, P_line_points, [255, 255, 0])
-
     ax = plt.subplot(234)
-    ax.imshow(im_edges)
-
-    im_frames = np.copy(im)
-    draw_to_image(im_frames, P_image_corners, color=[0, 0, 255], thick=True)
-    draw_to_image(im_frames, image_grid, color=[255, 255, 0])
-    draw_to_image(im_frames, image_corners, thick=True)
-    P_door_from_world_lo = world2image(
-        P_world_door_low, cam2world, kappa=params[-1], **camera_params)
-    P_door_from_world_hi = world2image(
-        P_world_door_hi, cam2world, kappa=params[-1], **camera_params)
-    draw_to_image(im_frames, P_door_from_world_lo, thick=True)
-    draw_to_image(im_frames, P_door_from_world_hi, thick=True)
-
-    if len(P_line_points) > 0:
-        dists = cdist(P_door_from_world_lo, P_line_points)
-        dists.sort(axis=1)
-        min_dists = dists.min(axis=1)
-        edge_pixels_percentage = float(np.count_nonzero(min_dists < 5)) / len(min_dists)
-        print edge_pixels_percentage
-        detected_lo = 0.7 < edge_pixels_percentage
-
-        dists = cdist(P_door_from_world_hi, P_line_points)
-        dists.sort(axis=1)
-        min_dists = dists.min(axis=1)
-        edge_pixels_percentage = float(np.count_nonzero(min_dists < 5)) / len(min_dists)
-        print edge_pixels_percentage
-        detected_hi = 0.7 < edge_pixels_percentage
-
-        door_closed = detected_lo or detected_hi
-    else:
-        door_closed = True
-
-    if door_closed:
-        print("The door is closed")
-    else:
-        print("The door is open")
+    image_edge_pixels = np.copy(image)
+    draw_to_image(image_edge_pixels, Pi_line_points, [255, 255, 0])
+    ax.imshow(image_edge_pixels)
 
     ax = plt.subplot(235)
     plt.setp(ax, xticks=(), yticks=())
-    ax.imshow(im_frames)
+    image_frames = np.copy(image)
+    draw_to_image(image_frames, Pi_corners, color=[0, 0, 255], thick=True)
+    draw_to_image(image_frames, Pi_grid, color=[255, 255, 0])
+    draw_to_image(image_frames, Pi_corners_proj, thick=True)
+    draw_to_image(image_frames, P_door_from_world_lo, thick=True)
+    draw_to_image(image_frames, P_door_from_world_hi, thick=True)
+    ax.imshow(image_frames)
 
     ax = plt.subplot(236, projection="3d")
     plot_transform(ax)
     plot_transform(ax, A2B=cam2world)
-    ax.scatter(P_world_grid[:, 0], P_world_grid[:, 1], P_world_grid[:, 2], s=1, c="g")
-    ax.scatter(P_corners[:, 0], P_corners[:, 1], P_corners[:, 2], c="g")
-    ax.scatter(P_world_door_low[:, 0], P_world_door_low[:, 1], P_world_door_low[:, 2], c="g")
-    ax.scatter(P_world_door_hi[:, 0], P_world_door_hi[:, 1], P_world_door_hi[:, 2], c="g")
+    ax.scatter(Pw_grid[:, 0], Pw_grid[:, 1], Pw_grid[:, 2], s=1, c="g")
+    ax.scatter(Pw_corners[:, 0], Pw_corners[:, 1], Pw_corners[:, 2], c="g")
+    ax.scatter(Pw_door_lo[:, 0], Pw_door_lo[:, 1], Pw_door_lo[:, 2], c="g")
+    ax.scatter(Pw_door_hi[:, 0], Pw_door_hi[:, 1], Pw_door_hi[:, 2], c="g")
     ax.set_xlim((-2, 2))
     ax.set_ylim((-2.5, 1.5))
     ax.set_zlim((-0.2, 2.8))
