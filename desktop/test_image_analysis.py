@@ -34,7 +34,7 @@ def draw_to_image(image, points, color=[0, 255, 0], thick=False):
                         image[p[1] + i, p[0] + j] = color
 
 
-def optimize_transform(projection_args):
+def optimize_transform(projection_args, Pw_corners, Pi_corners):
     """Optimize camera transformation."""
     if os.path.exists("transform.npy"):
         return np.loadtxt("transform.npy")
@@ -50,16 +50,16 @@ def optimize_transform(projection_args):
         p = params[3:6]
         kappa = params[-1]
         cam2world = transform_from(matrix_from_euler_xyz(e_xyz), p)
-        P_image = world2image(P_corners, cam2world, kappa=kappa,
+        Pi_projected = world2image(Pw_corners, cam2world, kappa=kappa,
                               **projection_args)
-        error = np.linalg.norm(P_image - P_image_corners) ** 2
+        error = np.linalg.norm(Pi_projected - Pi_corners) ** 2
         return error
 
     bounds = np.array([[0, 2 * np.pi],
                        [0, 2 * np.pi],
                        [0, 2 * np.pi],
-                       [-0.81, -0.85],
-                       [-1.08, -1.12],
+                       [-0.85, -0.81],
+                       [-1.12, -1.08],
                        [2.08, 2.12],
                        [0, 0.05]])
     covariance = np.array([np.pi / 2, np.pi / 2, np.pi / 2, 0.1, 0.1, 0.1, 0.01])
@@ -136,7 +136,7 @@ if __name__ == "__main__":
 
     # Estimate camera transformation by minimizing the distance between
     # calibration points
-    params = optimize_transform(camera_params)
+    params = optimize_transform(camera_params, Pw_corners, Pi_corners)
     print("Parameters: %s" % np.round(params, 3))
     cam2world = transform_from(matrix_from_euler_xyz(params[:3]), params[3:6])
     kappa = params[-1]
