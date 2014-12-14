@@ -7,7 +7,7 @@ import numpy as np
 from pytransform.rotations import *
 from pytransform.transformations import *
 from pytransform.camera import *
-from optimizer.python.cmaes import fmin
+from scipy.optimize import leastsq
 from skimage.io import imshow
 from skimage.color import rgb2gray
 from skimage.filter import sobel, threshold_otsu
@@ -43,30 +43,23 @@ def optimize_transform(projection_args, Pw_corners, Pi_corners):
     e_xyz = np.array([0.0, 1.0, 0.0]) * np.pi
     p = np.array([-0.83, -1.1, 2.1])
     kappa = 0.0
-    initial_params = np.hstack((e_xyz, p, [kappa]))
+
+    initial_params = np.hstack((e_xyz, [kappa]))
+    bounds = np.array([[0, 2 * np.pi], [0, 2 * np.pi], [0, 2 * np.pi], [0, 0.05]])
+    scaling = np.array([np.pi / 2, np.pi / 2, np.pi / 2, 0.01])
 
     def objective(params):
+        params = np.clip(params, bounds[:, 0], bounds[:, 1])
         e_xyz = params[:3]
-        p = params[3:6]
-        kappa = params[-1]
+        kappa = np.clip(params[-1], 0.0, 0.1)
         cam2world = transform_from(matrix_from_euler_xyz(e_xyz), p)
         Pi_projected = world2image(Pw_corners, cam2world, kappa=kappa,
-                              **projection_args)
-        error = np.linalg.norm(Pi_projected - Pi_corners) ** 2
-        return error
+                                   **projection_args)
+        return np.sum((Pi_projected - Pi_corners) ** 2, axis=1)
 
-    bounds = np.array([[0, 2 * np.pi],
-                       [0, 2 * np.pi],
-                       [0, 2 * np.pi],
-                       [-0.85, -0.81],
-                       [-1.12, -1.08],
-                       [2.08, 2.12],
-                       [0, 0.05]])
-    covariance = np.array([np.pi / 2, np.pi / 2, np.pi / 2, 0.1, 0.1, 0.1, 0.01])
-    r = fmin(objective, "ipop", x0=initial_params, maxfun=2000,
-             log_to_stdout=True, covariance=covariance, bounds=bounds,
-             random_state=0)
-    params = r[0]
+    r = leastsq(objective, initial_params, diag=scaling)
+    params = np.clip(r[0], bounds[:, 0], bounds[:, 1])
+    params = np.hstack((params[:3], p, [params[-1]]))
 
     np.savetxt("transform.npy", params)
     return params
