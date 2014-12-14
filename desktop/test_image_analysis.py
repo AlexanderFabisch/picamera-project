@@ -63,8 +63,9 @@ if __name__ == "__main__":
     draw_to_image(image_frames, Pi_corners, color=[0, 0, 255], thick=True)
     draw_to_image(image_frames, Pi_grid, color=[255, 255, 0])
     draw_to_image(image_frames, Pi_corners_proj, thick=True)
-    draw_to_image(image_frames, res["door_edges_in_image"][0], thick=True)
-    draw_to_image(image_frames, res["door_edges_in_image"][1], thick=True)
+    if "door_edges_in_image" in res:
+        draw_to_image(image_frames, res["door_edges_in_image"][0], thick=True)
+        draw_to_image(image_frames, res["door_edges_in_image"][1], thick=True)
     ax.imshow(image_frames)
 
     ax = plt.subplot(236, projection="3d")

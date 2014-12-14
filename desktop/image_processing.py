@@ -98,6 +98,8 @@ def check_line_is_edge(Pw_line, Pi_edge, cam2world, kappa, camera_params,
 def check_door(image, Pw_corners, Pi_corners, door_edges,
                required_matching_ratio=0.7, verbose=0):
     """Check if door is closed."""
+    results = {}
+
     image_sobel, image_edges = detect_edges(image)
 
     # Detect lines with Hough transform
@@ -119,22 +121,28 @@ def check_door(image, Pw_corners, Pi_corners, door_edges,
     # Get edge pixels in vicinity of lines
     Pi_line_points = check_edge_is_on_line(image_edges, angles, dists)
 
-    # Check how good the edges of the door projected to the image match
-    # detected edge pixels that correspond to lines
-    matchings = [check_line_is_edge(edge, Pi_line_points, cam2world, kappa,
-                                    camera_params) for edge in door_edges]
-    door_edges_in_image = [m[0] for m in matchings]
-    ratios = np.array([m[1] for m in matchings])
+    if len(Pi_line_points) == 0:
+        if verbose >= 1:
+            print("No lines detected, assume that door is closed")
+        door_closed = True
+    else:
+        # Check how good the edges of the door projected to the image match
+        # detected edge pixels that correspond to lines
+        matchings = [check_line_is_edge(edge, Pi_line_points, cam2world, kappa,
+                                        camera_params) for edge in door_edges]
+        results["door_edges_in_image"] = [m[0] for m in matchings]
+        ratios = np.array([m[1] for m in matchings])
 
-    if verbose >= 1:
-        print(("Matching ratios: " + ", ".join(["%.2f"] * len(ratios)))
-              % tuple(100 * ratios))
+        if verbose >= 1:
+            print(("Matching ratios: " + ", ".join(["%.2f"] * len(ratios)))
+                % tuple(100 * ratios))
 
-    door_closed = np.any(ratios > required_matching_ratio)
+        door_closed = np.any(ratios > required_matching_ratio)
 
-    return door_closed, W2I, {"cam2world": cam2world,
-                              "Pi_line_points": Pi_line_points,
-                              "door_edges_in_image": door_edges_in_image,
-                              "image_sobel": image_sobel,
-                              "image_edges": image_edges,
-                              "lines": (angles, dists)}
+    results["cam2world"] = cam2world
+    results["Pi_line_points"] = Pi_line_points
+    results["image_sobel"] = image_sobel
+    results["image_edges"] = image_edges
+    results["lines"] = (angles, dists)
+
+    return door_closed, W2I, results
